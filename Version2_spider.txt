@@ -1,0 +1,206 @@
+﻿#encoding=utf-8
+#use rest api
+import traceback
+import tweepy,json,datetime,time
+import pandas as pd
+from pandas.core.frame import DataFrame
+import lda
+import pymongo
+
+from bson.objectid import ObjectId
+#db set
+class MongoConn():
+    def __init__(self, db_name="twitter_test"):
+        try:
+            url = '127.0.0.1:27017'
+            self.client = pymongo.MongoClient(url, connect=True)
+            self.db = self.client[db_name]
+            print("db success")
+        except Exception as e:
+            print ('连接mongo数据失败!')
+            traceback.print_exc()
+    def destroy(self):
+        self.client.close()
+
+    def getDb(self):
+        return self.db
+
+    def __del__(self):
+        self.client.close()
+mydb=MongoConn()
+dbset1=mydb.getDb()['twitter_obj_0']
+dbset2=mydb.getDb()['twitter_obj_l']
+time.sleep(1)
+
+#Key
+ACCESS_TOKEN = "1051958917058752512-pPm6UJhHzM6avykJrEuU5q1PxN4yZb"
+ACCESS_TOKEN_SECRET = "rnBZQPrhwEuFB91XI0e1kuHWLV98dTPhVQAnZ81ZTizgU"
+CONSUMER_KEY = "vPtTqxyfa0ZIoN6enzeELcqAi"
+CONSUMER_SECRET = "U8MmVK53pjWmPdd2Ng8eb1LZFzaoe3IH0twfL13PIlKkmMRFJl"
+
+consumer_key = CONSUMER_KEY
+consumer_secret = CONSUMER_SECRET
+access_token = ACCESS_TOKEN
+access_token_secret = ACCESS_TOKEN_SECRET
+
+#提交你的Key和secret
+auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
+auth.set_access_token(access_token, access_token_secret)
+
+#api = tweepy.API(auth)
+#我这里代理地址是127.0.0.1:8520
+api = tweepy.API(auth)#,proxy="127.0.0.1:8989")
+
+def collect_keywords(keywords="League of legends"):
+    data=api.search(q=keywords,count=1000)
+    #print(data)
+    return data
+
+def collect_keywords_location(keywords="League of legends",olocation="Glasgow"):
+  #  geolocator = Nominatim()
+  #  location = geolocator.geocode(olocation
+
+    #geocode_ = str(location.latitude) + ',' + str(location.longitude) + ',' + '5000000mi'
+    #print(geocode_)
+    #print(location.address)
+    geocode_="55.856656,-4.2435817,10000mi"
+    #Glasgow, Glasgow City, Scotland, G, UK
+    data = api.search(q=keywords,geocode=geocode_,count=1000)
+    #print(data)
+    return data
+
+def count_retweets(data):
+    retweet_count=0
+    for one_str in data:
+        one_dic=eval(one_str)
+        #print('a',one_str,type(eval(one_str)))
+        #print(one_dic['retweet_count'])
+        retweet_count=retweet_count+one_dic['retweet_count']
+    print("retweet_count:",retweet_count)
+    return retweet_count
+
+def count_overlap(data):
+    all_len = len(data)
+    all_text=[]
+    for one_str in data:
+        one_dic = eval(one_str)
+        # print('a',one_str,type(eval(one_str)))
+        #print(one_dic['text'])
+        all_text.append(one_dic['text'])
+    #print(all_text)
+    set_len=len(set(all_text))
+    overlap=set_len/all_len
+    print("overlap:",overlap)
+    return overlap
+
+def textclass(data):
+    all_text = []
+    for one_str in data:
+        one_dic = eval(one_str)
+        all_text.append(one_dic['text'])
+    #print(all_text)
+    c={"values":all_text}
+    df = DataFrame(c)
+    from sklearn.feature_extraction.text import CountVectorizer
+    count = CountVectorizer(stop_words='english', max_df=.1, max_features=5000)
+    X = count.fit_transform(all_text)
+    from sklearn.decomposition import LatentDirichletAllocation
+    ldam = LatentDirichletAllocation(n_topics=6, random_state=123, learning_method='batch')
+    model = lda.LDA(n_topics=6, n_iter=500, random_state=1)
+    model.fit(X)
+    X_topics = ldam.fit_transform(X)
+    n_top_words = 6
+    topic_text=["" for i in range(7)]
+    feature_names = count.get_feature_names()
+    for topic_idx, topic in enumerate(ldam.components_):
+        print("topic %d:" % (topic_idx + 1))
+        topw=" ".join([feature_names[i] for i in topic.argsort()[:-n_top_words - 1:-1]])
+        print(topw)
+        topic_text[topic_idx]="topic"+str(topic_idx+1)
+
+    doc_topic = model.doc_topic_
+
+    #print("type(doc_topic): {}".format(type(doc_topic)))
+    #print("shape: {}".format(doc_topic.shape))
+    topic_sum=[0 for i in range(7)]
+    for n in range(len(data)):
+        topic_most_pr = doc_topic[n].argmax()
+        #print("doc: {} topic: {}".format(n, topic_most_pr))
+        topic_sum[topic_most_pr]+=1
+
+    import matplotlib.pyplot as plt
+
+    name_list = topic_text
+    num_list = topic_sum
+    plt.bar(range(len(num_list)), num_list, color='rgb', tick_label=name_list)
+    plt.show()
+
+if __name__ == "__main__":
+    print("start...")
+    def yin():
+        data_1=collect_keywords("League of legends")
+        print(data_1)
+        data_2=collect_keywords_location("League of legends","Glasgow")
+        file1=open("../data/data1.txt",'a',encoding="utf-8")
+        for one in data_1:
+            status=one
+            json_str = json.dumps(status._json)
+            tweet_json = json.loads(json_str)
+            tweet_text = tweet_json['text']
+            tweet_location = tweet_json['user']['location']
+            #print("user",tweet_json['user'])
+            #file1.write(str(tweet_json)+'\n')
+        file1.close()
+        file2 = open("../data/data2.txt",'a',encoding="utf-8")
+        for one in data_2:
+            status = one
+            json_str = json.dumps(status._json)
+            tweet_json = json.loads(json_str)
+            tweet_text = tweet_json['text']
+            tweet_location = tweet_json['user']['location']
+            #print(tweet_json['user'])
+            #file2.write(str(tweet_json) + '\n')
+        file2.close()
+        for tweet in data_1[0:]:
+            status = tweet
+            json_str = json.dumps(status._json)
+            tweet_json = json.loads(json_str)
+            #print(tweet_json)
+
+            try:
+                dbset1.save(tweet_json)  # 存入数据库
+                print("db1 save success")
+            except Exception as e:
+                print("db1 save error",e)
+                continue
+        for tweet in data_2[0:]:
+            status = tweet
+            json_str = json.dumps(status._json)
+            tweet_json = json.loads(json_str)
+            #print(tweet_json)
+
+            try:
+                dbset2.save(tweet_json)  # 存入数据库
+                print("db2 save success")
+            except Exception as e:
+                print("db2 save error",e)
+                continue
+    yin()
+    data_1=open("../data/data1.txt",encoding='utf-8')
+    data_2=open("../data/data2.txt",encoding='utf-8')
+    data_1 = data_1.readlines()
+    data_2 = data_2.readlines()
+    len_1=len(data_1)
+    len_2=len(data_2)
+    print("keywords data amount:",len_1)
+    print("geo-tagged data amount:", len_2)
+    retweet_count1=count_retweets(data_1)
+    retweet_count2=count_retweets(data_2)
+    overlap_1=count_overlap(data_1)
+    overlap_2 = count_overlap(data_2)
+    textclass(data_1)
+
+
+
+
+
